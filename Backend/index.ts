@@ -1,24 +1,59 @@
-import { identifyMovie } from "./identifyMovie";
+import express, { Request, Response } from "express";
+import cors from "cors";
+import multer from "multer";
+import { findMovie } from "./identifyMovie";
 
-Bun.serve({
-  port: 3000,
-  async fetch(req) {
-    const url = new URL(req.url);
+const PORT = process.env.PORT || 3000;
+const app = express();
 
-    if (req.method === "POST" && url.pathname === "/api/identify") {
-      const formData = await req.formData();
-      const file = formData.get("image") as File | null;
+// Enable CORS for frontend cross-origin requests
+app.use(cors());
+app.use(express.json());
 
-      if (!file) {
-        return Response.json({ error: "No image provided" }, { status: 400 });
+// Store uploaded files in memory RAM (as a Buffer)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+});
+
+// Health check endpoint
+app.get("/", (_req: Request, res: Response) => {
+  res.send("🎬 Express Movie Finder Backend is running!");
+});
+
+// Identify endpoint
+app.post(
+  "/api/identify",
+  upload.single("image"),
+  async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No image file uploaded." });
       }
 
-      const buffer = await file.arrayBuffer();
-      const result = await identifyMovie(buffer, file.type); // <--- Called here
+      console.log(
+        `Received file: ${req.file.originalname} (${(
+          req.file.size / 1024
+        ).toFixed(2)} KB)`
+      );
 
-      return Response.json(result);
+      // Call Gemini handler in FindMovies.ts
+      const result = await findMovie(req.file.buffer, req.file.mimetype);
+
+      console.log("Result:", result.title);
+      return res.json(result);
+    } catch (error: any) {
+      console.error("Error processing request:", error);
+      return res.status(500).json({
+        error: error.message || "An error occurred while analyzing the image.",
+      });
     }
+  }
+);
 
-    return new Response("Not Found", { status: 404 });
-  },
+// Start Server
+app.listen(PORT, () => {
+  console.log(`🚀 Express server running on http://localhost:${PORT}`);
 });
